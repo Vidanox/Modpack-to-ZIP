@@ -34,6 +34,12 @@ $env:CURSEFORGE_API_KEY = "your-api-key"
 python make_prism_modpack.py "https://www.curseforge.com/minecraft/modpacks/example-pack"
 ```
 
+Create a ZIP from a specific CurseForge file from the pack's Files page:
+
+```powershell
+python make_prism_modpack.py "https://www.curseforge.com/minecraft/modpacks/wynncraft-plus/files/7740118"
+```
+
 You can also pass the CurseForge key directly:
 
 ```powershell
@@ -64,7 +70,9 @@ python make_prism_modpack.py "https://modrinth.com/modpack/optifabric-modpack" -
 
 ```text
 --version VERSION
-    Version id, name, or number to export. Defaults to latest.
+    Version id, name, number, or CurseForge filename to export. Defaults to
+    latest. For CurseForge packs, you can also use a Files page URL such as
+    https://www.curseforge.com/minecraft/modpacks/wynncraft-plus/files/7740118.
 
 --name NAME
     Instance name written to instance.cfg.

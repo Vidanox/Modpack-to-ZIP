@@ -351,28 +351,31 @@ def batched(values: list[Any], size: int) -> Iterable[list[Any]]:
         yield values[index : index + size]
 
 
-def parse_pack_url(pack_url: str) -> tuple[str, str]:
+def parse_pack_url(pack_url: str) -> tuple[str, str, str | None]:
     parsed = urllib.parse.urlparse(pack_url)
     host = parsed.netloc.lower()
     parts = [part for part in parsed.path.split("/") if part]
 
     if host in {"modrinth.com", "www.modrinth.com"}:
         if len(parts) >= 2 and parts[0] == "modpack":
-            return "modrinth", parts[1]
+            return "modrinth", parts[1], None
         raise PackError("Modrinth URL must look like https://modrinth.com/modpack/<slug>")
 
     if host in {"curseforge.com", "www.curseforge.com"}:
         if len(parts) >= 3 and parts[0] == "minecraft" and parts[1] == "modpacks":
-            return "curseforge", parts[2]
+            file_id = parts[4] if len(parts) >= 5 and parts[3] == "files" and parts[4].isdigit() else None
+            return "curseforge", parts[2], file_id
         if len(parts) >= 2 and parts[0] == "projects":
-            return "curseforge", parts[1]
+            file_id = parts[3] if len(parts) >= 4 and parts[2] == "files" and parts[3].isdigit() else None
+            return "curseforge", parts[1], file_id
         raise PackError("CurseForge URL must look like https://www.curseforge.com/minecraft/modpacks/<slug>")
 
     if parsed.scheme == "curseforge":
         query = urllib.parse.parse_qs(parsed.query)
         addon = query.get("addonId", [""])[0]
         if addon:
-            return "curseforge", addon
+            file_id = query.get("fileId", [""])[0] or None
+            return "curseforge", addon, file_id
 
     raise PackError(f"Unsupported modpack URL: {pack_url}")
 
@@ -387,10 +390,15 @@ def find_version(versions: list[dict[str, Any]], version_selector: str | None) -
     for version in versions:
         candidates = [
             str(version.get("id", "")),
+            str(version.get("fileId", "")),
             str(version.get("version_number", "")),
             str(version.get("name", "")),
             str(version.get("displayName", "")),
+            str(version.get("fileName", "")),
         ]
+        file_stem = os.path.splitext(str(version.get("fileName", "")))[0]
+        if file_stem:
+            candidates.append(file_stem)
         if any(candidate.lower() == wanted for candidate in candidates):
             return version
     raise PackError(f"Could not find version {version_selector!r}.")
@@ -1262,6 +1270,23 @@ def self_test() -> None:
         ).name
         if modrinth_output_name != "Optifabric-7.2.1.zip":
             raise PackError(f"Self-test failed: bad Modrinth output name {modrinth_output_name!r}.")
+        provider, identifier, version_selector = parse_pack_url(
+            "https://www.curseforge.com/minecraft/modpacks/wynncraft-plus/files/7740118"
+        )
+        if (provider, identifier, version_selector) != ("curseforge", "wynncraft-plus", "7740118"):
+            raise PackError("Self-test failed: CurseForge file URL parsing is broken.")
+        curseforge_file = find_version(
+            [
+                {
+                    "id": 7740118,
+                    "displayName": "1.21.11-r1.81",
+                    "fileName": "Wynncraft Plus-RELEASE-1.21.11-r1.81.zip",
+                }
+            ],
+            "Wynncraft Plus-RELEASE-1.21.11-r1.81.zip",
+        )
+        if int(curseforge_file["id"]) != 7740118:
+            raise PackError("Self-test failed: CurseForge fileName version matching is broken.")
         (minecraft / "mods").mkdir()
         (minecraft / "config").mkdir()
         (minecraft / "kubejs").mkdir()
@@ -1392,7 +1417,9 @@ def run(argv: list[str]) -> int:
         SSL_CONTEXT = ssl._create_unverified_context()
     else:
         SSL_CONTEXTS = verified_ssl_contexts()
-    provider, identifier = parse_pack_url(args.url)
+    provider, identifier, url_version_selector = parse_pack_url(args.url)
+    if url_version_selector and not args.version:
+        args.version = url_version_selector
     started = time.time()
 
     if args.keep_work_dir:
