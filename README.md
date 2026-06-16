@@ -1,25 +1,19 @@
-# Modpacks Offline Prism Exporter
+# Modpacks Offline Prism Tools
 
-Create a ready-to-import PrismLauncher, PolyMC, or MultiMC ZIP from a Modrinth or CurseForge modpack URL.
+This repo contains two Python scripts:
 
-The generated ZIP contains an instance root with:
-
-```text
-instance.cfg
-mmc-pack.json
-minecraft/
-```
-
-Modrinth packs are downloaded through the public Modrinth API. CurseForge packs use the official CurseForge API and require an API key.
+- `make_prism_modpack.py` creates a ready-to-import PrismLauncher, PolyMC, or MultiMC ZIP from a Modrinth or CurseForge modpack URL.
+- `prefetch_prism_launcher.py` downloads a portable PrismLauncher build, preloads Minecraft assets/libraries/runtime files, and can also install modpack instances into that launcher.
 
 ## Requirements
 
 - Python 3
 - A CurseForge API key for CurseForge modpacks
+- Optional: `certifi` as a fallback certificate bundle when Python's default trust store is stale
 
-The script uses only Python's standard library. If the optional `certifi` package is installed, it can be used as a fallback certificate bundle when Python's default certificate store is stale.
+Both scripts use only Python's standard library otherwise.
 
-## Basic Usage
+## `make_prism_modpack.py`
 
 Create a ZIP from a Modrinth modpack:
 
@@ -46,8 +40,6 @@ You can also pass the CurseForge key directly:
 python make_prism_modpack.py "https://www.curseforge.com/minecraft/modpacks/example-pack" --curseforge-api-key "your-api-key"
 ```
 
-## Output
-
 By default, the ZIP is written to the current directory using the pack name and selected version, for example:
 
 ```text
@@ -66,7 +58,7 @@ Write to a specific ZIP path:
 python make_prism_modpack.py "https://modrinth.com/modpack/optifabric-modpack" -o .\exports\OptiFabric.zip
 ```
 
-## Options
+Options:
 
 ```text
 --version VERSION
@@ -102,14 +94,14 @@ python make_prism_modpack.py "https://modrinth.com/modpack/optifabric-modpack" -
     local certificate store is broken.
 ```
 
-## Notes
+Notes:
 
 - CurseForge files marked as unavailable to third-party launchers cannot be downloaded by this script.
 - Modrinth downloads verify hashes from the `.mrpack` metadata when available.
 - CurseForge and Modrinth pack icons are embedded when available unless `--no-icon` is used.
 - The script retries transient download failures and rate limits.
 
-## Troubleshooting
+Troubleshooting:
 
 If a Modrinth or CurseForge download fails with a certificate error, try running without `--insecure` first. The script already tries Python's default trust store, `certifi` if installed, and Windows root certificates when available.
 
@@ -119,4 +111,111 @@ For debugging pack contents, keep the work directory:
 
 ```powershell
 python make_prism_modpack.py "https://modrinth.com/modpack/optifabric-modpack" --keep-work-dir .\work-optifabric
+```
+
+## `prefetch_prism_launcher.py`
+
+Download a portable PrismLauncher build and prefill its shared Minecraft cache:
+
+```powershell
+python prefetch_prism_launcher.py --versions 1.21.8 1.20.1
+```
+
+Install modpacks into the portable launcher too:
+
+```powershell
+python prefetch_prism_launcher.py --modpacks "https://modrinth.com/modpack/optifabric-modpack"
+```
+
+Build the Linux portable bundle instead of the Windows one:
+
+```powershell
+python prefetch_prism_launcher.py --linux --versions 1.21.8
+```
+
+By default, the script downloads the latest Windows portable PrismLauncher release and writes `<portable-release-name>-prefetched.zip` in the current directory. Use `-o` for a different zip path, `--keep-extracted` to preserve the extracted launcher folder, or `--no-zip` to skip zip creation.
+
+Options:
+
+```text
+--linux
+    Download Linux Qt6 portable PrismLauncher and Linux Temurin JREs.
+
+--versions VERSIONS [VERSIONS ...]
+    Minecraft versions to prefetch. If omitted and no --modpacks are supplied,
+    an interactive selector is shown.
+
+--modpacks MODPACKS
+    Comma-separated Modrinth or CurseForge modpack URLs to install as portable
+    Prism instances. This expects make_prism_modpack.py to be present next to
+    this script.
+
+--modpack-version MODPACK_VERSION
+    Version id/name/number for all --modpacks; file-id URLs still override this
+    when omitted.
+
+--modpack-name MODPACK_NAME
+    Instance name for a single --modpacks URL.
+
+--skip-optional
+    Skip optional modpack files. By default optional files are included
+    disabled.
+
+--no-icon
+    Do not download and embed modpack icons.
+
+--curseforge-api-key CURSEFORGE_API_KEY
+    CurseForge API key for CurseForge modpacks; can also be supplied with
+    CURSEFORGE_API_KEY.
+
+--launcher-repo LAUNCHER_REPO
+    GitHub owner/repo for PrismLauncher releases. Default:
+    Diegiwg/PrismLauncher-Cracked.
+
+-o, --output OUTPUT
+    Output zip path. Defaults to '<portable-release-name>-prefetched.zip' in
+    the current directory.
+
+--work-dir WORK_DIR
+    Directory used for downloads and extraction. Defaults to a temporary
+    directory.
+
+--keep-extracted
+    Keep the extracted PrismLauncher directory after creating the zip.
+
+--no-zip
+    Do not create a zip; implies --keep-extracted.
+
+--concurrency CONCURRENCY
+    Concurrent file downloads. Default: 8
+
+--retries RETRIES
+    Download attempts per file. Default: 3
+
+--timeout TIMEOUT
+    HTTP timeout in seconds. Default: 60
+
+--java-arch JAVA_ARCH
+    Adoptium architecture value, such as x64 or aarch64. Defaults to this
+    machine's architecture.
+
+--insecure
+    Disable TLS certificate verification for this run.
+```
+
+Notes:
+
+- The portable bundle includes the launcher, shared Minecraft cache data, and any installed modpack instances.
+- The script retries transient download failures and certificate-store issues much like the pack exporter.
+
+Troubleshooting:
+
+If a download fails with a certificate error, try running without `--insecure` first. The script already tries Python's default trust store, `certifi` if installed, and Windows root certificates when available.
+
+If downloads still fail, update Python or your system certificates. Use `--insecure` only for a one-off run on a trusted network.
+
+For debugging the extracted launcher, keep it on disk:
+
+```powershell
+python prefetch_prism_launcher.py --versions 1.21.8 --keep-extracted
 ```

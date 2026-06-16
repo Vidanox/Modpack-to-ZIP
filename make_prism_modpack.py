@@ -423,6 +423,39 @@ def choose_modrinth_file(version: dict[str, Any]) -> dict[str, Any]:
     raise PackError("Selected Modrinth version does not contain a .mrpack file.")
 
 
+def looks_like_minecraft_version(value: str) -> bool:
+    return bool(
+        re.fullmatch(r"1\.\d+(?:\.\d+)?(?:[-_+A-Za-z0-9.]*)?", value)
+        or re.fullmatch(r"\d{2}\.\d+(?:\.\d+)?(?:[-_+A-Za-z0-9.]*)?", value)
+        or re.fullmatch(r"\d{2}w\d{2}[a-z]", value)
+        or re.fullmatch(r"[ab]\d+\.\d+(?:\.\d+)?", value)
+        or value.startswith("rd-")
+    )
+
+
+def resolve_modrinth_minecraft_version(index: Mapping[str, Any], selected: Mapping[str, Any]) -> str:
+    dependencies = index.get("dependencies") or {}
+    dependency_version = str(dependencies.get("minecraft") or "")
+    game_versions = [str(version) for version in selected.get("game_versions") or []]
+    game_versions = [version for version in game_versions if looks_like_minecraft_version(version)]
+
+    if dependency_version and dependency_version in game_versions:
+        return dependency_version
+    if dependency_version and looks_like_minecraft_version(dependency_version):
+        return dependency_version
+    if game_versions:
+        chosen = game_versions[0]
+        if dependency_version:
+            log(
+                f"Warning: .mrpack minecraft dependency {dependency_version!r} does not look valid for this version; "
+                f"using Modrinth game version {chosen!r}."
+            )
+        return chosen
+    if dependency_version:
+        return dependency_version
+    raise PackError("Modrinth pack is missing the minecraft dependency.")
+
+
 def build_modrinth_pack(
     slug: str,
     args: argparse.Namespace,
@@ -461,9 +494,7 @@ def build_modrinth_pack(
         raise PackError("Downloaded .mrpack does not contain modrinth.index.json.")
     index = json.loads(index_path.read_text(encoding="utf-8"))
     dependencies = index.get("dependencies") or {}
-    minecraft_version = dependencies.get("minecraft")
-    if not minecraft_version:
-        raise PackError("Modrinth pack is missing the minecraft dependency.")
+    minecraft_version = resolve_modrinth_minecraft_version(index, selected)
 
     instance_root = work_dir / "instance"
     minecraft_dir = instance_root / "minecraft"
@@ -525,7 +556,7 @@ def build_modrinth_pack(
         )
 
     download_items(downloads, minecraft_dir, "Modrinth files", args=args)
-    components = components_from_dependencies(dependencies)
+    components = components_from_dependencies(dependencies, minecraft_version)
 
     return PackBuild(
         provider="modrinth",
@@ -542,8 +573,8 @@ def build_modrinth_pack(
     )
 
 
-def components_from_dependencies(dependencies: Mapping[str, str]) -> tuple[Component, ...]:
-    components = [Component("net.minecraft", str(dependencies["minecraft"]), important=True)]
+def components_from_dependencies(dependencies: Mapping[str, str], minecraft_version: str | None = None) -> tuple[Component, ...]:
+    components = [Component("net.minecraft", str(minecraft_version or dependencies["minecraft"]), important=True)]
     mapping = [
         ("quilt-loader", "org.quiltmc.quilt-loader", "Quilt Loader"),
         ("fabric-loader", "net.fabricmc.fabric-loader", "Fabric Loader"),
@@ -1188,9 +1219,9 @@ def write_mmc_pack(build: PackBuild) -> None:
         }
         if component.important:
             obj["important"] = True
-        if component.cached_name:
+        if component.cached_name and component.uid != "net.minecraft":
             obj["cachedName"] = component.cached_name
-        if component.cached_version:
+        if component.cached_version and component.cached_version == component.version:
             obj["cachedVersion"] = component.cached_version
         components.append(obj)
 
